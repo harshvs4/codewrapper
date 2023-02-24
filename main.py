@@ -1,6 +1,6 @@
 #Importing Libraries
 from codewrapper.utils.transforms import CustomResnetTransforms
-from codewrapper.utils.dataloader import Cifar10DataLoader
+from codewrapper.utils.load_data import Cifar10DataLoader
 from codewrapper.utils.utils import get_device
 from codewrapper.models import *
 from codewrapper.utils.train import train
