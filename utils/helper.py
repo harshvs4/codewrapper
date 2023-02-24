@@ -1,116 +1,174 @@
-import torch
 import matplotlib.pyplot as plt
-from torchsummary import summary
-import yaml
-from pprint import pprint
-import random
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.image import show_cam_on_image
 import numpy as np
-import torch.nn as nn
-from torchvision import datasets, transforms
-from itertools import product
+from functools import reduce
+from typing import Union
+import torch
+from torch import nn
 
 
+def show_grad_cam(
+    model,
+    device,
+    images,
+    labels,
+    predictions,
+    target_layer,
+    classes,
+    use_cuda=True,
+):
+    """
+    model = model,
+    device = device,
+    images = input images
+    labels = correct classes for the images
+    predictions = predictions for the images. If the desired gradcam is for the correct classes, pass labels here.
+    target_layer = string representation of layer e.g. "layer3.1.conv2"
+    classes = list of class labels
+    """
+    target_layers = [get_module_by_name(model, target_layer)]
 
-def imshow(img):
-    # functions to show an image
-    fig, ax = plt.subplots(figsize=(12, 12))
-    img = img / 2 + 0.5     # unnormalize
-    npimg = img.numpy()
-    plt.imshow(np.transpose(npimg, (1, 2, 0)))
-    
-def unnormalize(img):
-  mean = (0.49139968, 0.48215841, 0.44653091)
-  std = (0.24703223, 0.24348513, 0.26158784)
-#   mean,std = calculate_mean_std("CIFAR")
-  img = img.cpu().numpy().astype(dtype=np.float32)
-  
-  for i in range(img.shape[0]):
-    img[i] = (img[i]*std[i])+mean[i]
-  
-  return np.transpose(img, (1,2,0))
-  
-  
-def calculate_mean_std(dataset):
-    if dataset == 'CIFAR10':
-        train_transform = transforms.Compose([transforms.ToTensor()])
-        train_set = datasets.CIFAR10(root='./data', train=True, download=True, transform=train_transform)
-        mean = train_set.data.mean(axis=(0,1,2))/255
-        std = train_set.data.std(axis=(0,1,2))/255
-        return mean, std
+    cam = GradCAM(model=model, target_layers=target_layers, use_cuda=use_cuda)
 
-def set_seed(seed,cuda_available):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if cuda_available:
-        torch.cuda.manual_seed(seed)
-    
-    
-def process_config(file_name):
-    with open(file_name, 'r') as config_file:
-        try:
-            config = yaml.safe_load(config_file)
-            print(" loading Configuration of your experiment ..")
-            return config
-        except ValueError:
-            print("INVALID yaml file format.. Please provide a good yaml file")
-            exit(-1)
+    fig = plt.figure(figsize=(32, 32))
 
+    plot_idx = 1
+    for i in range(len(images)):
+        input_tensor = images[i].unsqueeze(0).to(device)
+        targets = [ClassifierOutputTarget(predictions[i])]
+        rgb_img = denormalize(images[i].cpu().numpy().squeeze())
+        grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
+        grayscale_cam = grayscale_cam[0, :]
+        visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
 
-def model_summary(model, input_size):
-    result = summary(model, input_size=input_size)
-    print(result)
-    
-def class_level_accuracy(model, loader, device, classes):
+        # Layout = 6 images per row - 2 * (original image, gradcam and visualization)
+        ax = fig.add_subplot(len(images) / 2, 6, plot_idx, xticks=[], yticks=[])
+        ax.imshow(rgb_img, cmap="gray")
+        ax.set_title("True class: {}".format(classes[labels[i]]))
+        plot_idx += 1
 
-    class_correct = list(0. for i in range(len(classes)))
-    class_total = list(0. for i in range(len(classes)))
+        ax = fig.add_subplot(len(images) / 2, 6, plot_idx, xticks=[], yticks=[])
+        ax.imshow(grayscale_cam, cmap="gray")
+        ax.set_title("GradCAM Output\nTarget class: {}".format(classes[predictions[i]]))
+        plot_idx += 1
 
-    with torch.no_grad():
-        for _, (images, labels) in enumerate(loader, 0):
-            images, labels = images.to(device), labels.to(device)
+        ax = fig.add_subplot(len(images) / 2, 6, plot_idx, xticks=[], yticks=[])
+        ax.imshow(visualization, cmap="gray")
+        ax.set_title("Visualization\nTarget class: {}".format(classes[predictions[i]]))
+        plot_idx += 1
 
-            outputs = model(images)
-            _, predicted = torch.max(outputs, 1)
-            c = (predicted == labels).squeeze()
-
-            for i in range(len(labels)):
-                label = labels[i]
-                class_correct[label] += c[i].item()
-                class_total[label] += 1
+    plt.tight_layout()
+    plt.show()
 
 
-    for i in range(10):
-        print('Accuracy of %5s : %2d %%' % (classes[i], 100 * class_correct[i] / class_total[i]))
+def denormalize(img):
+    channel_means = (0.4914, 0.4822, 0.4465)
+    channel_stdevs = (0.2470, 0.2435, 0.2616)
+    img = img.astype(dtype=np.float32)
 
-def compute_confusion_matrix(model, data_loader, device):
+    for i in range(img.shape[0]):
+        img[i] = (img[i] * channel_stdevs[i]) + channel_means[i]
 
-    all_targets, all_predictions = [], []
-    with torch.no_grad():
+    return np.transpose(img, (1, 2, 0))
 
-        for i, (features, targets) in enumerate(data_loader):
 
-            features = features.to(device)
-            targets = targets
-            logits = model(features)
-            _, predicted_labels = torch.max(logits, 1)
-            all_targets.extend(targets.to('cpu'))
-            all_predictions.extend(predicted_labels.to('cpu'))
+def show_training_images(train_loader, count, classes):
+    images, labels = next(iter(train_loader))
+    images = images[0:count]
+    labels = labels[0:count]
 
-    all_predictions = all_predictions
-    all_predictions = np.array(all_predictions)
-    all_targets = np.array(all_targets)
-        
-    class_labels = np.unique(np.concatenate((all_targets, all_predictions)))
-    if class_labels.shape[0] == 1:
-        if class_labels[0] != 0:
-            class_labels = np.array([0, class_labels[0]])
-        else:
-            class_labels = np.array([class_labels[0], 1])
-    n_labels = class_labels.shape[0]
-    lst = []
-    z = list(zip(all_targets, all_predictions))
-    for combi in product(class_labels, repeat=2):
-        lst.append(z.count(combi))
-    mat = np.asarray(lst)[:, None].reshape(n_labels, n_labels)
-    return mat
+    fig = plt.figure(figsize=(20, 10))
+    for i in range(count):
+        sub = fig.add_subplot(count / 5, 5, i + 1)
+        npimg = denormalize(images[i].cpu().numpy().squeeze())
+        plt.imshow(npimg, cmap="gray")
+        sub.set_title("Correct class: {}".format(classes[labels[i]]))
+    plt.tight_layout()
+    plt.show()
+
+
+def show_misclassified_images(images, predictions, labels, classes):
+    fig = plt.figure(figsize=(20, 10))
+    for i in range(len(images)):
+        sub = fig.add_subplot(len(images) / 5, 5, i + 1)
+        image = images[i]
+        npimg = denormalize(image.cpu().numpy().squeeze())
+        plt.imshow(npimg, cmap="gray")
+        predicted = classes[predictions[i]]
+        correct = classes[labels[i]]
+        sub.set_title(
+            "Correct class: {}\nPredicted class: {}".format(correct, predicted)
+        )
+    plt.tight_layout()
+    plt.show()
+
+
+def show_losses_and_accuracies(trainer, tester, epochs):
+    fig, ax = plt.subplots(2, 2)
+
+    train_epoch_loss_linspace = np.linspace(0, epochs, len(trainer.train_losses))
+    test_epoch_loss_linspace = np.linspace(0, epochs, len(tester.test_losses))
+    train_epoch_acc_linspace = np.linspace(0, epochs, len(trainer.train_accuracies))
+    test_epoch_acc_linspace = np.linspace(0, epochs, len(tester.test_accuracies))
+
+    ax[0][0].set_xlabel("Epoch")
+    ax[0][0].set_ylabel("Train Loss")
+    ax[0][0].plot(train_epoch_loss_linspace, trainer.train_losses)
+    ax[0][0].tick_params(axis="y", labelleft=True, labelright=True)
+
+    ax[0][1].set_xlabel("Epoch")
+    ax[0][1].set_ylabel("Test Loss")
+    ax[0][1].plot(test_epoch_loss_linspace, tester.test_losses)
+    ax[0][1].tick_params(axis="y", labelleft=True, labelright=True)
+
+    ax[1][0].set_xlabel("Epoch")
+    ax[1][0].set_ylabel("Train Accuracy")
+    ax[1][0].plot(train_epoch_acc_linspace, trainer.train_accuracies)
+    ax[1][0].tick_params(axis="y", labelleft=True, labelright=True)
+    ax[1][0].yaxis.set_ticks(np.arange(0, 101, 5))
+
+    ax[1][1].set_xlabel("Epoch")
+    ax[1][1].set_ylabel("Test Accuracy")
+    ax[1][1].plot(test_epoch_acc_linspace, tester.test_accuracies)
+    ax[1][1].tick_params(axis="y", labelleft=True, labelright=True)
+    ax[1][1].yaxis.set_ticks(np.arange(0, 101, 5))
+
+    fig.set_size_inches(30, 10)
+    plt.tight_layout()
+    plt.show()
+
+
+def get_module_by_name(module: Union[torch.Tensor, nn.Module], access_string: str):
+    """Retrieve a module nested in another by its access string.
+
+    Works even when there is a Sequential in the module.
+    """
+    names = access_string.split(sep=".")
+    return reduce(getattr, names, module)
+
+
+def get_device():
+    """
+    Returns True, torch.device("cuda") if GPU is available
+    else returns false, torch.device("cpu")
+    """
+    is_cuda_available = torch.cuda.is_available()
+    device = torch.device("cuda" if is_cuda_available else "cpu")
+    return is_cuda_available, device
+
+
+def show_lr_history(trainer, epochs):
+    fig, ax = plt.subplots()
+
+    linspace = np.linspace(0, epochs, len(trainer.lr_history))
+
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Learning Rate")
+    ax.plot(linspace, trainer.lr_history)
+    ax.tick_params(axis="y", labelleft=True, labelright=True)
+
+    # fig.set_size_inches(30, 10)
+    plt.tight_layout()
+    plt.show()
