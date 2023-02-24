@@ -25,7 +25,7 @@ class Model(nn.Module):
         )
         self.gap = nn.AdaptiveAvgPool2d(1)
 
-        self.ultimus_blocks = nn.Sequential(
+        self.ultimus_block = nn.Sequential(
             Ultimus(),
             Ultimus(),
             Ultimus(),
@@ -43,7 +43,7 @@ class Model(nn.Module):
         
         x = x.view(-1, 48)
 
-        x = self.ultimus_blocks(x)
+        x = self.ultimus_block(x)
 
         out = self.final_fc(x)
 
@@ -67,25 +67,25 @@ class Ultimus(nn.Module):
 
     def forward(self, x):
         
-        k = self.fc_k(x)
-        k = k.view(k.size(0), 1, -1)
-        q = self.fc_q(x)
-        q = q.view(q.size(0), 1, -1)
-        v = self.fc_v(x)
-        v = v.view(v.size(0), 1, -1)
+        x = self.fc_k(x)
+        x = x.view(x.size(0), 1, -1)
+        y = self.fc_q(x)
+        y = y.view(y.size(0), 1, -1)
+        z = self.fc_v(x)
+        z = z.view(z.size(0), 1, -1)
 
-        am = self._am(q, k)
+        am = self._am(y, x)
 
-        z = self._z(v, am)
+        z = self._z(z, am)
 
         out = self.fc_out(z)
 
         return out
 
-    def _am(self, q, k):
-        am = (q.transpose(1, 2) @ k) / self.sqrt_d_k
+    def _am(self, y, x):
+        am = (y.transpose(1, 2) @ x) / self.sqrt_d_k
 
         return F.softmax(am, dim=1)
 
-    def _z(self, v, am):
-        return v @ am
+    def _z(self, z, am):
+        return z @ am
