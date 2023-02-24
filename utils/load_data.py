@@ -1,13 +1,17 @@
 from torch.utils.data import DataLoader
 from torchvision import datasets
-from .transforms import Transforms
-import numpy as np
 
 
 class Cifar10DataLoader:
-    def __init__(self, transforms, batch_size=128, is_cuda_available=False) -> None:
+    def __init__(
+        self,
+        transforms,
+        batch_size=128,
+        is_cuda_available=False,
+        shuffle=True,
+    ) -> None:
         self.batch_size = batch_size
-        self.dataloader_args = {"shuffle": True, "batch_size": self.batch_size}
+        self.dataloader_args = {"shuffle": shuffle, "batch_size": self.batch_size}
         self.means = [0.4914, 0.4822, 0.4465]
         self.stds = [0.2470, 0.2435, 0.2616]
 
