@@ -44,17 +44,17 @@ def show_grad_cam(
         visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
 
         # Layout = 6 images per row - 2 * (original image, gradcam and visualization)
-        ax = fig.add_subplot(len(images) / 2, 6, plot_idx, xticks=[], yticks=[])
+        ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
         ax.imshow(rgb_img, cmap="gray")
         ax.set_title("True class: {}".format(classes[labels[i]]))
         plot_idx += 1
 
-        ax = fig.add_subplot(len(images) / 2, 6, plot_idx, xticks=[], yticks=[])
+        ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
         ax.imshow(grayscale_cam, cmap="gray")
         ax.set_title("GradCAM Output\nTarget class: {}".format(classes[predictions[i]]))
         plot_idx += 1
 
-        ax = fig.add_subplot(len(images) / 2, 6, plot_idx, xticks=[], yticks=[])
+        ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
         ax.imshow(visualization, cmap="gray")
         ax.set_title("Visualization\nTarget class: {}".format(classes[predictions[i]]))
         plot_idx += 1
@@ -81,7 +81,7 @@ def show_training_images(train_loader, count, classes):
 
     fig = plt.figure(figsize=(20, 10))
     for i in range(count):
-        sub = fig.add_subplot(count / 5, 5, i + 1)
+        sub = fig.add_subplot(count // 5, 5, i + 1)
         npimg = denormalize(images[i].cpu().numpy().squeeze())
         plt.imshow(npimg, cmap="gray")
         sub.set_title("Correct class: {}".format(classes[labels[i]]))
@@ -92,7 +92,7 @@ def show_training_images(train_loader, count, classes):
 def show_misclassified_images(images, predictions, labels, classes):
     fig = plt.figure(figsize=(20, 10))
     for i in range(len(images)):
-        sub = fig.add_subplot(len(images) / 5, 5, i + 1)
+        sub = fig.add_subplot(len(images) // 5, 5, i + 1)
         image = images[i]
         npimg = denormalize(image.cpu().numpy().squeeze())
         plt.imshow(npimg, cmap="gray")
