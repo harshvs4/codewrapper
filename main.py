@@ -33,10 +33,10 @@ def save_model(model, epoch, optimizer, path):
     torch.save(state, path)
 
 
-def train_model(trainer, tester, NUM_EPOCHS, use_l1=False, scheduler=None, save_best=False):
+def train_model(train, test, NUM_EPOCHS, use_l1=False, scheduler=None, save_best=False):
     for epoch in range(1, NUM_EPOCHS + 1):
-        trainer.train(epoch, scheduler)
-        _, test_loss = tester.test()
+        train.train(epoch, scheduler)
+        _, test_loss = test.test()
 
         if scheduler:
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
@@ -49,7 +49,7 @@ def train_model(trainer, tester, NUM_EPOCHS, use_l1=False, scheduler=None, save_
                 print(
                     f"Valid loss reduced from {min_val_loss:.5f} to {test_loss:.6f}. checkpoint created at...{save_path}\n"
                 )
-                save_model(trainer.model, epoch, trainer.optimizer, save_path)
+                save_model(train.model, epoch, train.optimizer, save_path)
                 min_val_loss = test_loss
             else:
                 print(f"Valid loss did not inprove from {min_val_loss:.5f}")
@@ -57,19 +57,19 @@ def train_model(trainer, tester, NUM_EPOCHS, use_l1=False, scheduler=None, save_
         print()
 
     if scheduler:
-        return trainer.model, (
-            trainer.train_accuracies,
-            trainer.train_losses,
-            tester.test_accuracies,
-            tester.test_losses,
-            trainer.lr_history,
+        return train.model, (
+            train.train_accuracies,
+            train.train_losses,
+            test.test_accuracies,
+            test.test_losses,
+            train.lr_history,
         )
     else:
-        return trainer.model, (
-            trainer.train_accuracies,
-            trainer.train_losses,
-            tester.test_accuracies,
-            tester.test_losses,
+        return train.model, (
+            train.train_accuracies,
+            train.train_losses,
+            test.test_accuracies,
+            test.test_losses,
         )
 
 
@@ -135,10 +135,10 @@ def run():
         anneal_strategy="linear",
     )
 
-    trainer = Train(model, train_loader, optimizer, criterion, device)
-    tester = Test(model, test_loader, criterion, device)
+    train = Train(model, train_loader, optimizer, criterion, device)
+    test = Test(model, test_loader, criterion, device)
 
-    train_model(trainer, tester, NUM_EPOCHS=24, scheduler=scheduler)
+    train_model(train, test, NUM_EPOCHS=24, scheduler=scheduler)
 
 
 if __name__ == "__main__":
