@@ -1,11 +1,11 @@
 #Importing Libraries
-from utils.transforms import CustomResnetTransforms
-from utils.dataloader import Cifar10DataLoader
-from utils.utils import get_device
-from models.custom_resnet import CustomResNet
-from utils.trainer import train
-from utils.tester import test
-from utils.summary import print_summary
+from codewrapper.utils.transforms import CustomResnetTransforms
+from codewrapper.utils.dataloader import Cifar10DataLoader
+from codewrapper.utils.utils import get_device
+from codewrapper.models import *
+from codewrapper.utils.train import train
+from codewrapper.utils.test import test
+from codewrapper.utils.helper import print_summary
 from torch_lr_finder import LRFinder
 import numpy as np
 import copy
