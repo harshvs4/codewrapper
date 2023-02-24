@@ -2,7 +2,7 @@
 from codewrapper.utils.transforms import CustomResnetTransforms
 from codewrapper.utils.load_data import Cifar10DataLoader
 from codewrapper.utils.helper import get_device
-from codewrapper.models import *
+from codewrapper.model import *
 from codewrapper.utils.train import train
 from codewrapper.utils.test import test
 from codewrapper.utils.helper import print_summary
@@ -110,8 +110,9 @@ def run():
     is_cuda_available, device = get_device()
     cifar10 = Cifar10DataLoader(CustomResnetTransforms, 512, is_cuda_available)
 
-    print_summary(CustomResNet(), device, input_size=(3, 32, 32))
-
+    #print_summary(CustomResNet(), device, input_size=(3, 32, 32))
+    result = summary(CustomResNet(), input_size=input_size)
+    print(result)
     model = CustomResNet()
 
     train_loader = cifar10.get_loader(True)
@@ -134,8 +135,8 @@ def run():
         anneal_strategy="linear",
     )
 
-    trainer = Trainer(model, train_loader, optimizer, criterion, device)
-    tester = Tester(model, test_loader, criterion, device)
+    trainer = Train(model, train_loader, optimizer, criterion, device)
+    tester = Test(model, test_loader, criterion, device)
 
     train_model(trainer, tester, NUM_EPOCHS=24, scheduler=scheduler)
 
