@@ -105,9 +105,9 @@ def get_lr(
 
 def run(epochs: int):
     is_cuda_available, device = get_device()
-    result = summary(Model(), input_size=input_size)
+    result = summary(TransformerModel(), input_size=input_size)
     print(result)
-    model = Model()
+    model = TransformerModel()
     cifar10 = Cifar10DataLoader(
         DefaultTransforms,
         512,
