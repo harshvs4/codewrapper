@@ -3,8 +3,8 @@ from codewrapper.utils.transforms import CustomResnetTransforms
 from codewrapper.utils.load_data import Cifar10DataLoader
 from codewrapper.utils.helper import get_device
 from codewrapper.model import *
-from codewrapper.utils.train import train
-from codewrapper.utils.test import test
+from codewrapper.utils.train import Train
+from codewrapper.utils.test import Test
 from codewrapper.utils.helper import print_summary
 from torch_lr_finder import LRFinder
 import numpy as np
