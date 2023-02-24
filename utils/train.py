@@ -1,67 +1,71 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-def get_lr(optimizer):
-    for param_group in optimizer.param_groups:
-        return param_group['lr']
 
-def train(model, device, train_loader, optimizer, epoch,train_acc,train_loss,lambda_l1,scheduler,criterion,lrs,writer,grad_clip=None):
+class Train:
+    def __init__(self, model, train_loader, optimizer, criterion, device) -> None:
+        self.train_losses = []
+        self.train_accuracies = []
+        self.epoch_train_accuracies = []
+        self.model = model.to(device)
+        self.train_loader = train_loader
+        self.optimizer = optimizer
+        self.criterion = criterion
+        self.device = device
+        self.lr_history = []
 
-  model.train()
-  pbar = tqdm(train_loader)
-  
-  correct = 0
-  processed = 0
+    def train(self, epoch, scheduler=None, use_l1=False, lambda_l1=0.01):
+        self.model.train()
 
-  for batch_idx, (data, target) in enumerate(pbar):
-    # get samples
-    data, target = data.to(device), target.to(device)
+        lr_trend = []
+        correct = 0
+        processed = 0
+        train_loss = 0
 
-    # Init
-    optimizer.zero_grad()
-    # In PyTorch, we need to set the gradients to zero before starting to do backpropragation because PyTorch accumulates the gradients on subsequent backward passes. 
-    # Because of this, when you start your training loop, ideally you should zero out the gradients so that you do the parameter update correctly.
+        pbar = tqdm(self.train_loader)
 
-    # Predict
-    y_pred = model(data)
+        for batch_id, (inputs, targets) in enumerate(pbar):
+            # transfer to device
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
 
-    # Calculate loss
-    loss = criterion(y_pred, target)
-    
-    #L1 Regularization
-    if lambda_l1 > 0:
-      l1 = 0
-      for p in model.parameters():
-        l1 = l1 + p.abs().sum()
-      loss = loss + lambda_l1*l1
+            # Initialize gradients to 0
+            self.optimizer.zero_grad()
 
-    train_loss.append(loss.data.cpu().numpy().item())
-    #t_loss += loss.data.cpu().numpy().item()
-    
-    writer.add_scalar(
-                'Batch/Train/train_loss', loss.data.cpu().numpy().item(), epoch*len(pbar) + batch_idx)
+            # Prediction
+            outputs = self.model(inputs)
 
-    # Backpropagation
-    loss.backward()
-    
-    # Gradient clipping
-    if grad_clip: 
-        nn.utils.clip_grad_value_(model.parameters(), grad_clip)
-        
-    optimizer.step()   
-    if "OneCycleLR" in str(scheduler):
-        scheduler.step()
-        
-    lrs.append(get_lr(optimizer))
+            # Calculate loss
+            loss = self.criterion(outputs, targets)
 
-    # Update pbar-tqdm
-    
-    pred = y_pred.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-    correct += pred.eq(target.view_as(pred)).sum().item()
-    processed += len(data)
+            l1 = 0
+            if use_l1:
+                for p in self.model.parameters():
+                    l1 = l1 + p.abs().sum()
+            loss = loss + lambda_l1 * l1
 
-    pbar.set_description(desc= f'Loss={loss.item()} Batch_id={batch_idx} LR={lrs[-1]:0.5f} Accuracy={100*correct/processed:0.2f}')
-    train_acc.append(100*correct/processed)
+            self.train_losses.append(loss.item())
+
+            # Backpropagation
+            loss.backward()
+            self.optimizer.step()
+
+            # updating LR
+            if scheduler:
+                if not isinstance(scheduler, ReduceLROnPlateau):
+                    scheduler.step()
+                    lr_trend.append(scheduler.get_last_lr()[0])
+
+            pred = outputs.argmax(dim=1, keepdim=True)
+            correct += pred.eq(targets.view_as(pred)).sum().item()
+            processed += len(inputs)
+
+            pbar.set_description(
+                desc=f"EPOCH = {epoch} | LR = {self.optimizer.param_groups[0]['lr']} | Loss = {loss.item():3.2f} | Batch = {batch_id} | Accuracy = {100*correct/processed:0.2f}"
+            )
+            self.train_accuracies.append(100 * correct / processed)
+
+        # After all the batches are done, append accuracy for epoch
+        self.epoch_train_accuracies.append(100 * correct / processed)
+
+        self.lr_history.extend(lr_trend)
+        return 100 * correct / processed, train_loss / (batch_id + 1), lr_trend
