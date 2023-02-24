@@ -12,6 +12,19 @@ from albumentations.pytorch.transforms import ToTensorV2
 import numpy as np
 
 
+class DefaultTransforms:
+    def __init__(self, means, stds, train=True):
+        self.transformations = Compose(
+            [
+                Normalize(mean=means, std=stds, always_apply=True),
+                ToTensorV2(),
+            ]
+        )
+
+    def __call__(self, img):
+        return self.transformations(image=np.array(img))["image"]
+
+
 class Transforms:
     def __init__(self, means, stds, train=True):
         if train:
@@ -67,6 +80,7 @@ class CustomResnetTransforms:
         if train:
             self.transformations = Compose(
                 [
+                    Normalize(mean=means, std=stds, always_apply=True),
                     Sequential(
                         [
                             PadIfNeeded(
@@ -85,7 +99,6 @@ class CustomResnetTransforms:
                         max_holes=1,
                         fill_value=means,
                     ),
-                    Normalize(mean=means, std=stds, always_apply=True),
                     ToTensorV2(),
                 ]
             )
