@@ -1,166 +1,144 @@
-import torchvision
-from codewrapper.dataloader.load_data import *
+#Importing Libraries
+from utils.transforms import CustomResnetTransforms
+from utils.dataloader import Cifar10DataLoader
+from utils.utils import get_device
+from models.custom_resnet import CustomResNet
+from utils.trainer import train
+from utils.tester import test
+from utils.summary import print_summary
+from torch_lr_finder import LRFinder
+import numpy as np
+import copy
+
 import torch
 import torch.optim as optim
-import matplotlib.pyplot as plt
-from torch.optim.lr_scheduler import StepLR,OneCycleLR,ReduceLROnPlateau
-from codewrapper.utils import train as trn
-from codewrapper.utils import test as tst
-from torchsummary import summary
-import yaml
-from pprint import pprint
-import random
-import numpy as np
 import torch.nn as nn
-import matplotlib.pyplot as plt
-from torch.utils.tensorboard import SummaryWriter
-from torch_lr_finder import LRFinder
+from torch.optim.lr_scheduler import OneCycleLR
 
-class TriggerEngine:
-    def __init__(self, config):
-        self.config = config
-        self.loader = config['data_loader']['type']
-        self.image_dataset=eval(self.loader)(self.config)
-        self.device = self.set_device()
-        self.writer = SummaryWriter()
-        self.l2_factor = self.config['training_params']['l2_factor']
 
-        
-    def dataloader(self):
-        #Get dataloaders
-        return self.image_dataset.get_dataloader()
-       
-    def get_classes(self): 
-        return self.image_dataset.classes()
-        
-    def set_device(self):
-        use_cuda = torch.cuda.is_available()
-        device = torch.device("cuda" if use_cuda else "cpu")
-        return device
-        
-    def run_experiment(self,model,train_loader,test_loader,lrmin=None,lrmax=None):
-        
-        model.to(self.device) 
-        dropout=self.config['model_params']['dropout']
-        epochs=self.config['training_params']['epochs']
-        
-        l1_factor = self.config['training_params']['l1_factor']
-        #max_epoch = self.config['training_params']['epochs']
-        
-        criterion = nn.CrossEntropyLoss()
-        opt_func = optim.Adam if self.config['optimizer']['type'] == 'optim.Adam' else optim.SGD
-        lr = self.config['optimizer']['args']['lr']
-        
-        grad_clip = 0.1
-            
-        train_losses = []
-        test_losses = []
-        train_accuracy = []
-        test_accuracy = []
-        plot_train_acc=[]
-        lrs=[]           
-        
-        
-        if lrmax is not None:
-            optimizer = optim.SGD(model.parameters(), lr=lrmin, momentum=0.90,weight_decay=self.l2_factor)
-            if self.config['lr_scheduler'] == 'OneCycleLR': 
-                scheduler = OneCycleLR(optimizer=optimizer, max_lr=lrmax,
-                                      epochs=epochs, steps_per_epoch=len(train_loader),
-                                      pct_start=epochs,div_factor=8)
+def save_model(model, epoch, optimizer, path):
+    """Save torch model in .pt format
+
+    Args:
+        model (instace): torch instance of model to be saved
+        epoch (int): epoch num
+        optimizer (instance): torch optimizer
+        path (str): model saving path
+    """
+    state = {
+        "epoch": epoch,
+        "state_dict": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+    }
+    torch.save(state, path)
+
+
+def train_model(trainer, tester, NUM_EPOCHS, use_l1=False, scheduler=None, save_best=False):
+    for epoch in range(1, NUM_EPOCHS + 1):
+        trainer.train(epoch, scheduler)
+        _, test_loss = tester.test()
+
+        if scheduler:
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(test_loss)
+
+        if save_best:
+            min_val_loss = np.inf
+            save_path = "model.pt"
+            if test_loss < min_val_loss:
+                print(
+                    f"Valid loss reduced from {min_val_loss:.5f} to {test_loss:.6f}. checkpoint created at...{save_path}\n"
+                )
+                save_model(trainer.model, epoch, trainer.optimizer, save_path)
+                min_val_loss = test_loss
             else:
-                scheduler = ReduceLROnPlateau(optimizer, factor=0.2, patience=3,verbose=True,mode='max')
-        else:
-            optimizer = opt_func(model.parameters(), lr=lr, momentum=0.90,weight_decay=self.l2_factor)
-            if self.config['lr_scheduler'] == 'OneCycleLR':
-                scheduler = OneCycleLR(optimizer, max_lr=lr,epochs=epochs,steps_per_epoch=len(train_loader))
-            else:
-                scheduler = ReduceLROnPlateau(optimizer, factor=0.2, patience=3,verbose=True,mode='max')
+                print(f"Valid loss did not inprove from {min_val_loss:.5f}")
 
-            
-        for epoch in range(1, epochs + 1):
-            print(f'Epoch {epoch}:')
-            trn.train(model, self.device, train_loader, optimizer,epoch, train_accuracy, train_losses, l1_factor,scheduler,criterion,lrs,self.writer,grad_clip)
-            tst.test(model, self.device, test_loader,test_accuracy,test_losses,criterion)
-            
-            self.writer.add_scalar('Epoch/Train/train_loss', train_losses[-1], epoch)
-            self.writer.add_scalar('Epoch/Test/test_loss', test_losses[-1], epoch)
-            self.writer.add_scalar('Epoch/Train/train_accuracy', train_accuracy[-1], epoch)
-            self.writer.add_scalar('Epoch/Train/test_accuracy', test_accuracy[-1], epoch)
-            plot_train_acc.append(train_accuracy[-1])
+        print()
 
-            if "ReduceLROnPlateau" in str(scheduler):
-                scheduler.step(test_accuracy[-1])
+    if scheduler:
+        return trainer.model, (
+            trainer.train_accuracies,
+            trainer.train_losses,
+            tester.test_accuracies,
+            tester.test_losses,
+            trainer.lr_history,
+        )
+    else:
+        return trainer.model, (
+            trainer.train_accuracies,
+            trainer.train_losses,
+            tester.test_accuracies,
+            tester.test_losses,
+        )
 
-            self.writer.flush()
-        return (plot_train_acc,train_losses,test_accuracy,test_losses)   
 
-    def find_lr(self,model,train_loader, test_loader, start_lr, end_lr):
-        
-        
-        lr_epochs = self.config['training_params']['epochs']
-        num_iterations = len(test_loader) * lr_epochs
+def get_lr(
+    model,
+    train_loader,
+    optimizer,
+    criterion,
+    device,
+    end_lr=10,
+    num_iter=200,
+    step_mode="exp",
+    start_lr=None,
+    diverge_th=5,
+):
+    lr_finder = LRFinder(model, optimizer, criterion, device=device)
+    lr_finder.range_test(
+        train_loader,
+        end_lr=end_lr,
+        num_iter=num_iter,
+        step_mode=step_mode,
+        start_lr=start_lr,
+        diverge_th=diverge_th,
+    )
+    lr_finder.plot()
+    min_loss = min(lr_finder.history["loss"])
+    max_lr = lr_finder.history["lr"][np.argmin(lr_finder.history["loss"], axis=0)]
 
-        criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), lr=start_lr, momentum=0.90, weight_decay=self.l2_factor)
-        lr_finder = LRFinder(model, optimizer, criterion, device="cuda")
-        lr_finder.range_test(train_loader, val_loader=test_loader, end_lr=end_lr, num_iter=num_iterations, step_mode="linear",diverge_th=50)
-        
-        # Plot
-        max_lr = lr_finder.history['lr'][lr_finder.history['loss'].index(lr_finder.best_loss)]
+    print("Min Loss = {}, Max LR = {}".format(min_loss, max_lr))
 
-        # Reset graph
-        lr_finder.reset()
-        return max_lr     
+    # Reset the model and optimizer to initial state
+    lr_finder.reset()
 
-    def save_experiment(self,model, experiment_name,path):
-        print(f"Saving the model for {experiment_name}")
-        torch.save(model, f'{path}/{experiment_name}.pt')
-    
-    def model_summary(self,model, input_size):
-        result = summary(model, input_size=input_size)
-        print(result)  
+    return min_loss, max_lr
 
-    def wrong_predictions(self,model,test_loader,num_img):
-        wrong_images=[]
-        wrong_label=[]
-        correct_label=[]
-        model.eval()
-        with torch.no_grad():
-            for data, target in test_loader:
-                data, target = data.to(self.device), target.to(self.device)
-                output = model(data)        
-                pred = output.argmax(dim=1, keepdim=True).squeeze()  # get the index of the max log-probability
 
-                wrong_pred = (pred.eq(target.view_as(pred)) == False)
-                wrong_images.append(data[wrong_pred])
-                wrong_label.append(pred[wrong_pred])
-                correct_label.append(target.view_as(pred)[wrong_pred])  
-      
-                wrong_predictions = list(zip(torch.cat(wrong_images),torch.cat(wrong_label),torch.cat(correct_label)))    
-            print(f'Total wrong predictions are {len(wrong_predictions)}')
-            
-            self.plot_misclassified(wrong_predictions,num_img)
-      
-        return wrong_predictions
+def run():
+    is_cuda_available, device = get_device()
+    cifar10 = Cifar10DataLoader(CustomResnetTransforms, 512, is_cuda_available)
 
-    def plot_misclassified(self,wrong_predictions,num_img):
-        fig = plt.figure(figsize=(15,12))
-        fig.tight_layout()
-        mean,std = self.image_dataset.calculate_mean_std()
-        for i, (img, pred, correct) in enumerate(wrong_predictions[:num_img]):
-            img, pred, target = img.cpu().numpy().astype(dtype=np.float32), pred.cpu(), correct.cpu()
-            for j in range(img.shape[0]):
-                img[j] = (img[j]*std[j])+mean[j]
-            
-            img = np.transpose(img, (1, 2, 0)) 
-            ax = fig.add_subplot(5, 5, i+1)
-            fig.subplots_adjust(hspace=.5)
-            ax.axis('off')
-            self.class_names,_ = self.get_classes()
-            
-            ax.set_title(f'\nActual : {self.class_names[target.item()]}\nPredicted : {self.class_names[pred.item()]}',fontsize=10)  
-            ax.imshow(img)  
-          
-        plt.show()
-     
-    
+    print_summary(CustomResNet(), device, input_size=(3, 32, 32))
+
+    model = CustomResNet()
+
+    train_loader = cifar10.get_loader(True)
+    test_loader = cifar10.get_loader(False)
+
+    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    criterion = nn.CrossEntropyLoss()
+
+    min_loss, max_lr = get_lr(model, train_loader, optimizer, criterion, device)
+
+    scheduler = OneCycleLR(
+        optimizer,
+        max_lr=max_lr,
+        steps_per_epoch=len(train_loader),
+        epochs=24,
+        pct_start=5 / 24,
+        div_factor=100,
+        three_phase=False,
+        final_div_factor=100,
+        anneal_strategy="linear",
+    )
+
+    trainer = Trainer(model, train_loader, optimizer, criterion, device)
+    tester = Tester(model, test_loader, criterion, device)
+
+    train_model(trainer, tester, NUM_EPOCHS=24, scheduler=scheduler)
+
+
+if __name__ == "__main__":
+    run()
