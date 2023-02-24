@@ -1,5 +1,5 @@
 #Importing Libraries
-from codewrapper.utils.transforms import CustomResnetTransforms
+from codewrapper.utils.transforms import CustomResnetTransforms, DefaultTransforms
 from codewrapper.utils.load_data import Cifar10DataLoader
 from codewrapper.utils.helper import *
 from codewrapper.model import *
@@ -30,8 +30,6 @@ def save_model(model, epoch, optimizer, path):
         "optimizer": optimizer.state_dict(),
     }
     torch.save(state, path)
-
-
 def train_model(train, test, NUM_EPOCHS, use_l1=False, scheduler=None, save_best=False):
     for epoch in range(1, NUM_EPOCHS + 1):
         train.train(epoch, scheduler)
@@ -105,32 +103,50 @@ def get_lr(
     return min_loss, max_lr
 
 
-def run():
+def run(epochs: int):
     is_cuda_available, device = get_device()
-    cifar10 = Cifar10DataLoader(CustomResnetTransforms, 512, is_cuda_available)
-
-    #print_summary(CustomResNet(), device, input_size=(3, 32, 32))
-    result = summary(CustomResNet(), input_size=input_size)
+    result = summary(TransformerModel(), input_size=input_size)
     print(result)
-    model = CustomResNet()
+    model = TransformerModel()
+    cifar10 = Cifar10DataLoader(
+        DefaultTransforms,
+        512,
+        is_cuda_available,
+        shuffle=False,
+    )
+    train_loader = cifar10.get_loader(True)
+    optimizer = optim.Adam(model.parameters(), lr=1e-7)
+    criterion = nn.CrossEntropyLoss()
 
+    min_loss, max_lr = get_lr(
+        model=model,
+        train_loader=train_loader,
+        optimizer=optimizer,
+        criterion=criterion,
+        device=device,
+        end_lr=0.001,
+        num_iter=200,
+    )
+
+    cifar10 = Cifar10DataLoader(
+        CustomResnetTransforms,
+        512,
+        is_cuda_available,
+    )
     train_loader = cifar10.get_loader(True)
     test_loader = cifar10.get_loader(False)
 
-    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
-    criterion = nn.CrossEntropyLoss()
-
-    min_loss, max_lr = get_lr(model, train_loader, optimizer, criterion, device)
+    show_training_images(train_loader=train_loader, count=20, classes=cifar10.classes)
 
     scheduler = OneCycleLR(
         optimizer,
         max_lr=max_lr,
         steps_per_epoch=len(train_loader),
-        epochs=24,
-        pct_start=5 / 24,
+        epochs=epochs,
+        pct_start=5 / epochs,
         div_factor=100,
         three_phase=False,
-        final_div_factor=100,
+        final_div_factor=1000,
         anneal_strategy="linear",
     )
 
@@ -141,4 +157,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    run(epochs=24)
