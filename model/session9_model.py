@@ -8,15 +8,6 @@ dropout = 0.05
 class Model9(nn.Module):
     def __init__(self, num_classes=10, n_features=48):
         super(Model9, self).__init__()
-
-        """
-        CONVOLUTION BLOCK
-
-           InputDimensions        NIn   RFIn   K  P  S  Jin  Jout  RFOut  NOut       OutputDimensions          Notes
-        [batch_size,  3, 32, 32]   32     1    3  1  1   1    1      3     32    [batch_size, 16, 32, 32]    Normal Conv
-        [batch_size, 16, 32, 32]   32     3    3  1  1   1    1      5     32    [batch_size, 32, 32, 32]    Normal Conv
-        [batch_size, 32, 32, 32]   32     5    3  1  1   1    1      7     32    [batch_size, 48, 32, 32]    Normal Conv
-        """
         self.conv_block = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1),
             nn.BatchNorm2d(16),
@@ -31,34 +22,14 @@ class Model9(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
         )
-
-        """
-        GAP 1
-
-        Input     = [batch_size, 48, 32, 32]
-        Ouput (X) = [batch_size, 48,  1,  1]
-        """
         self.gap = nn.AdaptiveAvgPool2d(1)
 
-        """
-        Ultimus Blocks
-
-        Input     = [batch_size, 48]
-        Ouput     = [batch_size, 48]
-        """
         self.ultimus_blocks = nn.Sequential(
             UltimusBlock(),
             UltimusBlock(),
             UltimusBlock(),
             UltimusBlock(),
         )
-
-        """
-        Final FC Layer
-
-        Input     = [batch_size, 1, 48]
-        Ouput     = [batch_size, 1, 10]
-        """
         self.final_fc = nn.Linear(
             in_features=n_features, out_features=num_classes, bias=False
         )
@@ -66,15 +37,11 @@ class Model9(nn.Module):
     def forward(self, x):
         x = self.conv_block(x)
         x = self.gap(x)
-
-        # Reshape [batch_size, 48, 1, 1] to [batch_size, 48]
         x = x.view(-1, 48)
 
         x = self.ultimus_blocks(x)
 
         out = self.final_fc(x)
-
-        # Reshape to [batch_size, 10]
         out = out.view(out.size(0), -1)
         return out
 
@@ -93,22 +60,6 @@ class UltimusBlock(nn.Module):
         self.fc_out = nn.Linear(in_features=out_features, out_features=in_features)
 
     def forward(self, x):
-        """
-        |====================================|
-        |  Variable  |        Shape          |
-        |====================================|
-        |     x      |  [batch_size,    48]) |
-        |            |                       |
-        |     k      |  [batch_size, 1,  8]) |
-        |     q      |  [batch_size, 1,  8]) |
-        |     v      |  [batch_size, 1,  8]) |
-        |            |                       |
-        |     am     |  [batch_size, 8,  8]) |
-        |     z      |  [batch_size, 1,  8]) |
-        |            |                       |
-        |     out    |  [batch_size, 1, 48]) |
-        =====================================|
-        """
         k = self.fc_k(x)
         k = k.view(k.size(0), 1, -1)
         q = self.fc_q(x)
