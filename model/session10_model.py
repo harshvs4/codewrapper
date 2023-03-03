@@ -57,6 +57,16 @@ class SelfAttention2d(nn.Module):
         out = out.view(b, -1, h, w)
         out = self.unifyheads(out)
         return out
+        @staticmethod
+    def get_indices(h, w):
+        y = torch.arange(h, dtype=torch.long)
+        x = torch.arange(w, dtype=torch.long)
+        
+        y1, x1, y2, x2 = torch.meshgrid(y, x, y, x, indexing='ij')
+        indices = (y1 - y2 + h - 1) * (2 * w - 1) + x1 - x2 + w - 1
+        indices = indices.flatten()
+        
+        return indices
       
 class FeedForward(nn.Sequential):
     def __init__(self, in_channels, out_channels, mult=4):
