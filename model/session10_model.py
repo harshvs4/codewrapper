@@ -57,7 +57,8 @@ class SelfAttention2d(nn.Module):
         out = out.view(b, -1, h, w)
         out = self.unifyheads(out)
         return out
-        @staticmethod
+    
+    @staticmethod
     def get_indices(h, w):
         y = torch.arange(h, dtype=torch.long)
         x = torch.arange(w, dtype=torch.long)
